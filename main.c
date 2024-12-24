@@ -5,10 +5,12 @@
 #include <GL/glx.h>
 
 #include <stdio.h>
+#include <math.h>
+#define PI 3.141592653589793
 
 #define BGCOL 0.125, 0.125, 0.125
 #define BORDERCOL 0.0625, 0.0625, 0.0625
-#define WWIDTH 800
+#define WWIDTH 600
 #define WHEIGHT 600
 #define WTITLE "EPIC BREAKOUT :3"
 
@@ -27,13 +29,15 @@ static int quit;
 static float bricks_x[BR_ROWS*BR_COLS];
 static float bricks_y[BR_ROWS*BR_COLS];
 
-#define BALL_R 0.01f
+#define BALL_R 0.05f
+#define LAUNCH_VX 0.0125
+#define LAUNCH_VY 0.0125
 static float ball_x;
 static float ball_y;
 static float ball_vx;
 static float ball_vy;
 
-#define PADDLE_SPEED 0.01675f
+#define PADDLE_SPEED 0.01f
 #define PADDLE_WIDTH 0.25f
 #define PADDLE_HEIGHT 0.05f
 static float paddle_x;
@@ -41,14 +45,37 @@ static float paddle_y;
 
 static KeySym unreleased_key;
 
+static int idling;
+
+void newBall(){
+  ball_vx = ball_vy = 0.0f;
+  ball_x = paddle_x;
+  ball_y = paddle_y + PADDLE_HEIGHT/2.0f + BALL_R;
+  idling = 1;
+}
+
 void resetPaddle(){
   paddle_x = 0.0f;
   paddle_y = PADDLE_HEIGHT - 1.0f;
 }
 
+void drawBall(){
+  int points = 10;
+  float spacing = 1.0f/(float)points;
+
+  glBegin(GL_TRIANGLE_FAN);
+  glColor4d(0.0, 0.0, 1.0, 1.0);
+
+  for(float i = 0.0f; i <= 2.0f; i += spacing){
+    glVertex2f(ball_x + BALL_R * cos(PI * i), ball_y + BALL_R * sin(PI * i));
+  }
+
+  glEnd();
+}
+
 void drawPaddle(){
   glBegin(GL_QUADS);
-  glColor4f(0.0f, 1.0f, 0.0f, 1.0f);
+  glColor4d(0.0, 1.0, 0.0, 1.0);
   glVertex2f(paddle_x + PADDLE_WIDTH/2.0f, paddle_y + PADDLE_HEIGHT/2.0f);
   glVertex2f(paddle_x - PADDLE_WIDTH/2.0f, paddle_y + PADDLE_HEIGHT/2.0f);
   glVertex2f(paddle_x - PADDLE_WIDTH/2.0f, paddle_y - PADDLE_HEIGHT/2.0f);
@@ -76,7 +103,7 @@ void drawBorder(){
 
 void drawBricks(){
   glBegin(GL_QUADS);
-  glColor4f(1.0, 0.0f, 0.0f, 1.0f);
+  glColor4d(1.0, 0.0, 0.0, 1.0);
   
   for(int i=0; i<BR_ROWS*BR_COLS; ++i){
     glVertex2f(bricks_x[i] + BR_WIDTH/2.0f, bricks_y[i] + BR_HEIGHT/2.0f);
@@ -129,6 +156,7 @@ void init(){
 
   spreadBricks();
   resetPaddle();
+  newBall();
 }
 
 void cleanup(){
@@ -152,6 +180,13 @@ void loop(){
 	switch(ks){
 	case XK_Escape:
 	  quit = 1;
+	  break;
+	case XK_space:
+	  if(idling){
+	    idling = 0;
+	    ball_vx = LAUNCH_VX;
+	    ball_vy = LAUNCH_VY;
+	  }
 	  break;
 	default:
 	  unreleased_key = ks;
@@ -179,6 +214,25 @@ void loop(){
 
     if(paddle_x + PADDLE_WIDTH/2.0f > 1.0f) paddle_x -= PADDLE_SPEED;
     else if(paddle_x - PADDLE_WIDTH/2.0f < -1.0f) paddle_x += PADDLE_SPEED;
+
+    if(idling) ball_x = paddle_x;
+    ball_x += ball_vx;
+    ball_y += ball_vy;
+
+    if(ball_x + BALL_R > 1.0f || ball_x - BALL_R < -1.0f){
+      ball_vx *= -1.0f;
+      ball_x += ball_vx;
+    }
+    if(ball_y + BALL_R > 1.0f ||
+       (ball_x - BALL_R <= paddle_x + PADDLE_WIDTH/2.0f &&
+	ball_x + BALL_R >= paddle_x - PADDLE_WIDTH/2.0f &&
+	ball_y - BALL_R <= paddle_y + PADDLE_HEIGHT/2.0f)){
+      ball_vy *= -1.0f;
+      ball_y += ball_vy;
+    }
+    if(ball_y - BALL_R < -1.0f){
+      newBall();
+    }
     
     /* == RENDERING == */
     
@@ -186,8 +240,9 @@ void loop(){
     glClear(GL_COLOR_BUFFER_BIT);
 
     drawBorder();
-    drawBricks();
     drawPaddle();
+    drawBall();
+    drawBricks();
 
     glXSwapBuffers(display, window);
   }
