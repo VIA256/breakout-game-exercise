@@ -5,6 +5,7 @@
 #include <GL/glx.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
 #define PI 3.141592653589793
 
@@ -21,23 +22,26 @@ static GLXContext gl_context;
 
 static int quit;
 
-#define BR_ROWS 5
+#define BR_ROWS 10
 #define BR_COLS 10
 #define BR_WIDTH 1.0f / BR_COLS
 #define BR_HEIGHT 0.5f / BR_ROWS
 
 static float bricks_x[BR_ROWS*BR_COLS];
 static float bricks_y[BR_ROWS*BR_COLS];
+static int bricks_active[BR_ROWS*BR_COLS];
+static int bricks_active_count;
 
-#define BALL_R 0.05f
-#define LAUNCH_VX 0.0125
-#define LAUNCH_VY 0.0125
+#define BALL_R 0.025f
+#define LVLUP_MUL 1.25
+static float LAUNCH_VX = 0.0125f;
+static float LAUNCH_VY = 0.0125f;
 static float ball_x;
 static float ball_y;
 static float ball_vx;
 static float ball_vy;
 
-#define PADDLE_SPEED 0.01f
+static float PADDLE_SPEED = 0.015f;
 #define PADDLE_WIDTH 0.25f
 #define PADDLE_HEIGHT 0.05f
 static float paddle_x;
@@ -46,6 +50,8 @@ static float paddle_y;
 static KeySym unreleased_key;
 
 static int idling;
+
+#define VEC_D(xa, ya, xb, yb) ( sqrt(pow(xa-xb, 2) + pow(ya-yb, 2)) )
 
 void newBall(){
   ball_vx = ball_vy = 0.0f;
@@ -106,6 +112,8 @@ void drawBricks(){
   glColor4d(1.0, 0.0, 0.0, 1.0);
   
   for(int i=0; i<BR_ROWS*BR_COLS; ++i){
+    if(!bricks_active[i]) continue;
+    
     glVertex2f(bricks_x[i] + BR_WIDTH/2.0f, bricks_y[i] + BR_HEIGHT/2.0f);
     glVertex2f(bricks_x[i] - BR_WIDTH/2.0f, bricks_y[i] + BR_HEIGHT/2.0f);
     glVertex2f(bricks_x[i] - BR_WIDTH/2.0f, bricks_y[i] - BR_HEIGHT/2.0f);
@@ -120,8 +128,19 @@ void spreadBricks(){
     for(int j=0; j<BR_COLS; ++j){
       bricks_x[BR_COLS*i+j] = (float)(2*j + 2) / (float)(BR_COLS+1) - 1.0f;
       bricks_y[BR_COLS*i+j] = (float)(i+1) / (float)(BR_ROWS+1);
+      bricks_active[BR_COLS*i+j] = 1;
+      bricks_active_count = BR_COLS*BR_ROWS;
     }
   }
+}
+
+void next_level(){
+  spreadBricks();
+  resetPaddle();
+  newBall();
+  LAUNCH_VX *= LVLUP_MUL;
+  LAUNCH_VY *= LVLUP_MUL;
+  PADDLE_SPEED *= LVLUP_MUL;
 }
 
 void init(){
@@ -204,9 +223,11 @@ void loop(){
     switch(unreleased_key){
     case XK_Left:
       paddle_x -= PADDLE_SPEED;
+      LAUNCH_VX = -fabsf(LAUNCH_VX);
       break;
     case XK_Right:
       paddle_x += PADDLE_SPEED;
+      LAUNCH_VX = fabsf(LAUNCH_VX);
       break;
     }
     
@@ -232,6 +253,42 @@ void loop(){
     }
     if(ball_y - BALL_R < -1.0f){
       newBall();
+    }
+
+    if(ball_y + BALL_R >= bricks_y[0] - BR_HEIGHT){
+      int brid;
+      float prevd = 69.0f;
+      float newd;
+      
+      for(int i=0; i<BR_ROWS*BR_COLS; ++i){
+	newd = VEC_D(ball_x, ball_y, bricks_x[i], bricks_y[i]);
+	if(newd <= prevd){
+	  brid = i;
+	  prevd = newd;
+	}
+      }
+
+      if(bricks_active[brid]){
+	float brx = bricks_x[brid];
+	float bry = bricks_y[brid];
+	if(ball_x - BALL_R <= brx + BR_WIDTH &&
+	   ball_x + BALL_R >= brx - BR_WIDTH &&
+	   ball_y - BALL_R <= bry + BR_HEIGHT &&
+	   ball_y + BALL_R >= bry - BR_HEIGHT)
+	  {
+	    float nx, ny;
+	    nx = ball_x - brx;
+	    ny = ball_y - bry;
+	    nx /= fabs(nx);
+	    ny /= fabs(ny);
+	    ball_vx *= -nx;
+	    ball_vy *= ny;
+
+	    bricks_active[brid] = 0;
+	    --bricks_active_count;
+	    if(bricks_active_count <= 0) next_level();
+	}
+      }
     }
     
     /* == RENDERING == */
